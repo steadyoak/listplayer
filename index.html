@@ -159,16 +159,32 @@
           video.requestFullscreen().catch(() => {});
         }
 
-        // 清除事件监听，后续交由 video 自己处理
+        // 清除初次交互事件监听
         interactionLayer.removeEventListener('click', activatePlaybackOnce);
         document.removeEventListener('keydown', keyHandler);
         video.removeEventListener('click', activatePlaybackOnce);
+
+        // 添加后续 f/F 键监听用于全屏切换
+        document.addEventListener('keydown', fullScreenKeyHandler);
       }
 
       function keyHandler(e) {
-        if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause')) {
+        const code = e.code;
+        if (!interacted && (code === 'Space' || code === 'MediaPlayPause' || e.key === 'f' || e.key === 'F')) {
           activatePlaybackOnce();
           e.preventDefault();
+        } else if (code === 'MediaTrackNext') {
+          nextEpisode();
+        }
+      }
+
+      function fullScreenKeyHandler(e) {
+        if (e.key === 'f' || e.key === 'F') {
+          if (!document.fullscreenElement) {
+            video.requestFullscreen?.();
+          } else {
+            document.exitFullscreen?.();
+          }
         } else if (e.code === 'MediaTrackNext') {
           nextEpisode();
         }
