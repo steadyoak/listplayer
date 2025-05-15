@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Loading...</title>
+<style>
+  body {
+    background-color: #111;
+    color: #fff;
+    font-family: sans-serif;
+    margin: 0;
+    padding: 2em;
+    overflow: hidden;
+  }
+  #form {
+    max-width: 90vw;
+    margin: 0 auto;
+  }
+  input, textarea {
+    font-family: sans-serif;
+    font-size: 1em;
+    width: 100%;
+    margin-bottom: 1em;
+    box-sizing: border-box;
+    padding: 0.5em;
+    background-color: #151515 !important;
+    color: #fff !important;
+    border: 1px solid #333;
+    outline: none;
+  }
+  input:-webkit-autofill,
+  input:-webkit-autofill:focus {
+    background-color: #151515 !important;
+    color: #fff !important;
+    -webkit-box-shadow: 0 0 0px 1000px #151515 inset !important;
+    -webkit-text-fill-color: #fff !important;
+  }
+  textarea {
+    resize: none;
+    overflow: hidden;
+    min-height: 15em;
+  }
+  button {
+    padding: 0.5em 1em;
+    font-size: 1em;
+    cursor: pointer;
+  }
+  video {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: black;
+    display: none;
+  }
+  #interactionLayer {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0);
+    z-index: 9999;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div id="form">
+  <input id="titleInput" type="text" placeholder="内容标题" />
+  <textarea id="listInput" placeholder="地址列表"></textarea>
+  <button id="openBtn" disabled>打开</button>
+</div>
+
+<video id="player" controls></video>
+<div id="interactionLayer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<script>
+  // Utils
+  const getParam = name => new URLSearchParams(location.search).get(name);
+  const toBase64 = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const fromBase64 = str => decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
+  const safeCurrentUrlBase64 = () => toBase64(location.href);
+
+  // Detect iOS Safari for muted autoplay
+  function isIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  }
+  function isSafari() {
+    return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  }
+
+  const t = getParam('t');
+  const l = getParam('l');
+  const video = document.getElementById('player');
+  const form = document.getElementById('form');
+  const interactionLayer = document.getElementById('interactionLayer');
+
+  if (!l) {
+    // Input form mode
+    const titleInput = document.getElementById('titleInput');
+    const listInput = document.getElementById('listInput');
+    const openBtn = document.getElementById('openBtn');
+
+    listInput.addEventListener('input', () => {
+      openBtn.disabled = listInput.value.trim() === '';
+      autoResize(listInput);
+    });
+
+    function autoResize(textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, window.innerHeight * 0.8) + 'px';
+    }
+    listInput.addEventListener('input', () => autoResize(listInput));
+    window.addEventListener('resize', () => autoResize(listInput));
+    autoResize(listInput);
+
+    openBtn.addEventListener('click', () => {
+      const titleEncoded = toBase64(titleInput.value.trim());
+      const listEncoded = toBase64(listInput.value.trim());
+      const url = `${location.pathname}?t=${titleEncoded}&l=${listEncoded}`;
+      location.href = url;
+    });
+
+  } else {
+    // Video mode
+    form.style.display = 'none';
+    video.style.display = 'block';
+    interactionLayer.style.display = 'block';
+
+    // Load playlist
+    let list = fromBase64(l).split(/\r?\n/).filter(line => line.trim());
+    const current = list[0];
+    const [epName, url] = current.split('$');
+    const title = t ? fromBase64(t) : '';
+    document.title = (title ? title + ' - ' : '') + epName;
+
+    // Setup HLS
+    const hls = new Hls();
+    hls.loadSource(url);
+    hls.attachMedia(video);
+
+    // Muted autoplay condition
+    if (isIOS() && isSafari()) {
+      video.muted = true;
+    } else {
+      video.muted = false;
+    }
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(() => {});
+    });
+
+    // Interaction & autoplay logic
+    let interacted = false;
+
+    function activatePlaybackOnce() {
+      if (interacted) return;
+      interacted = true;
+      video.muted = false;
+      video.play().catch(() => {});
+      interactionLayer.style.display = 'none';
+      if (!document.fullscreenElement && video.requestFullscreen) {
+        video.requestFullscreen().catch(() => {});
+      }
+      interactionLayer.removeEventListener('click', activatePlaybackOnce);
+      document.removeEventListener('keydown', initialKeyHandler);
+      video.removeEventListener('click', activatePlaybackOnce);
+      // After first interaction, add f/F fullscreen toggle only
+      document.addEventListener('keydown', fullscreenKeyHandler);
+    }
+
+    function initialKeyHandler(e) {
+      if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause' || e.key === 'f' || e.key === 'F')) {
+        activatePlaybackOnce();
+        e.preventDefault();
+      }
+    }
+    function fullscreenKeyHandler(e) {
+      if (e.key === 'f' || e.key === 'F') {
+        if (!document.fullscreenElement) {
+          video.requestFullscreen?.();
+        } else {
+          document.exitFullscreen?.();
+        }
+      }
+    }
+
+    interactionLayer.addEventListener('click', activatePlaybackOnce);
+    document.addEventListener('keydown', initialKeyHandler);
+    video.addEventListener('click', activatePlaybackOnce);
+
+    // Next episode function
+    function nextEpisode() {
+      list.shift();
+      if (list.length > 0) {
+        const newL = toBase64(list.join('\n'));
+        const newUrl = `${location.pathname}?${t ? `t=${t}&` : ''}l=${newL}`;
+        // 广播切换地址事件
+        socket.emit('change_video', newUrl, safeCurrentUrlBase64());
+        location.href = newUrl;
+      }
+    }
+
+    video.addEventListener('ended', () => {
+      nextEpisode();
+    });
+
+    // ========== 远程同步功能部分 ==========
+
+    // 先读取 server.txt 中 socket 服务器地址
+    let socket = null;
+    fetch('server.txt').then(resp => resp.text()).then(serverAddr => {
+      serverAddr = serverAddr.trim();
+      // 默认 http 协议，除非地址以 https:// 开头
+      if (!/^https?:\/\//.test(serverAddr)) {
+        serverAddr = 'http://' + serverAddr;
+      }
+      socket = io(serverAddr);
+
+      // 远程同步播放相关状态和标志
+      let isSyncing = true;
+      let firstPlay = true;
+      let actionSeek = false;
+      let actionPlay = false;
+      let actionPause = false;
+
+      // 接收远程消息
+      socket.on('video', data => {
+        if (data.sid === socket.id) return; // 跳过自己
+
+        // 远程地址同步，检测地址不符时跳转
+        if (data.pageUrlBase64 && data.pageUrlBase64 !== safeCurrentUrlBase64()) {
+          // 地址不符，跳转到服务器地址
+          const decodedUrl = fromBase64(data.pageUrlBase64);
+          console.log('远程地址与当前地址不符，跳转到：', decodedUrl);
+          location.href = decodedUrl;
+          return;
+        }
+
+        if (data.action === 'sync') {
+          emitStatus(true);
+          return;
+        }
+
+        if (data.action === 'play') {
+          if (data.syncing && !isSyncing) return;
+          isSyncing = false;
+          seekTime(data.time);
+          if (video.paused) {
+            actionPlay = true;
+            video.play();
+          }
+          changeSpeed(data.speed, false);
+        } else if (data.action === 'pause') {
+          if (data.syncing && !isSyncing) return;
+          isSyncing = false;
+          seekTime(data.time);
+          if (!video.paused) {
+            actionPause = true;
+            video.pause();
+          }
+          changeSpeed(data.speed, false);
+        } else if (data.action === 'seek') {
+          seekTime(data.time);
+        } else if (data.action === 'change_video') {
+          // 收到切换视频地址广播，跳转
+          const newUrl = data.newUrl;
+          if (newUrl && newUrl !== location.href) {
+            console.log('接收到切换视频地址广播，跳转到：', newUrl);
+            location.href = newUrl;
+          }
+        }
+      });
+
+      // 播放事件
+      video.addEventListener('play', () => {
+        if (firstPlay) {
+          firstPlay = false;
+          interactionLayer.style.display = 'none';
+          socket.emit('require_sync', 0, false, 1, safeCurrentUrlBase64());
+          return;
+        }
+        if (actionPlay) {
+          actionPlay = false;
+          return;
+        }
+        emitStatus(false);
+      });
+
+      // 暂停事件
+      video.addEventListener('pause', () => {
+        if (actionPause) {
+          actionPause = false;
+          return;
+        }
+        emitStatus(false);
+      });
+
+      // 跳转事件
+      video.addEventListener('seeked', () => {
+        if (actionSeek) {
+          actionSeek = false;
+          return;
+        }
+        emitStatus(false);
+      });
+
+      // 切换地址事件广播函数（封装）
+      function broadcastChangeUrl(newUrl) {
+        if (socket) {
+          socket.emit('change_video', newUrl, safeCurrentUrlBase64());
+        }
+      }
+
+      // 发送当前状态
+      function emitStatus(syncing) {
+        if (!socket) return;
+        const pageUrlBase64 = safeCurrentUrlBase64();
+        if (video.paused) {
+          socket.emit('pause_video', video.currentTime, syncing, video.playbackRate, pageUrlBase64);
+        } else {
+          socket.emit('play_video', video.currentTime, syncing, video.playbackRate, pageUrlBase64);
+        }
+      }
+
+      // 播放/暂停切换函数
+      window.togglePlayPause = function() {
+        if (video.paused) {
+          video.play();
+        } else {
+          video.pause();
+        }
+      };
+
+      // 跳转时间函数
+      function seekTime(time) {
+        if (Math.abs(video.currentTime - time) < 0.5) return;
+        actionSeek = true;
+        video.currentTime = time;
+      }
+
+      // 改变速度函数
+      function changeSpeed(newSpeed, needEmit) {
+        if (newSpeed === video.playbackRate) return;
+        if (newSpeed < 0.25) newSpeed = 0.25;
+        if (newSpeed > 2) newSpeed = 2;
+        video.playbackRate = newSpeed;
+        if (!needEmit) return;
+        emitStatus(false);
+      }
+
+      // 替换全局的 nextEpisode 函数，添加广播功能
+      window.nextEpisode = function() {
+        list.shift();
+        if (list.length > 0) {
+          const newL = toBase64(list.join('\n'));
+          const newUrl = `${location.pathname}?${t ? `t=${t}&` : ''}l=${newL}`;
+          broadcastChangeUrl(newUrl);
+          location.href = newUrl;
+        }
+      };
+    });
+  }
+</script>
+</body>
+</html>
