@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Loading...</title>
+  <style>
+    body {
+      background-color: #111;
+      color: #fff;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 2em;
+    }
+    input, textarea, button {
+      display: block;
+      width: 100%;
+      margin-bottom: 1em;
+      font-size: 1.2em;
+    }
+    video {
+      width: 100vw;
+      height: 100vh;
+      background: black;
+    }
+  </style>
+</head>
+<body>
+  <div id="form">
+    <input id="titleInput" type="text" placeholder="标题（可空）">
+    <textarea id="listInput" placeholder="输入分集名称$地址...一行一个"></textarea>
+    <button id="openBtn" disabled>打开</button>
+  </div>
+
+  <video id="player" controls style="display:none;"></video>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const getParam = name => new URLSearchParams(location.search).get(name);
+    const toBase64 = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const fromBase64 = str => decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
+
+    const t = getParam('t');
+    const l = getParam('l');
+
+    if (!l) {
+      // 初始化表单逻辑
+      const titleInput = document.getElementById('titleInput');
+      const listInput = document.getElementById('listInput');
+      const openBtn = document.getElementById('openBtn');
+
+      listInput.addEventListener('input', () => {
+        openBtn.disabled = listInput.value.trim() === '';
+      });
+
+      openBtn.addEventListener('click', () => {
+        const titleEncoded = toBase64(titleInput.value.trim());
+        const listEncoded = toBase64(listInput.value.trim());
+        const url = `${location.pathname}?t=${titleEncoded}&l=${listEncoded}`;
+        location.href = url;
+      });
+    } else {
+      // 播放逻辑
+      const video = document.getElementById('player');
+      const form = document.getElementById('form');
+      form.style.display = 'none';
+      video.style.display = 'block';
+
+      let list = fromBase64(l).split(/\r?\n/).filter(line => line.trim());
+      const current = list[0];
+      const [epName, url] = current.split('$');
+      const title = t ? fromBase64(t) : '';
+      document.title = (title ? title + ' - ' : '') + epName;
+
+      const hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().then(() => video.requestFullscreen()).catch(() => {});
+      });
+
+      // 控制键
+      document.addEventListener('keydown', e => {
+        if (e.code === 'Space' || e.code === 'MediaPlayPause') {
+          video.paused ? video.play() : video.pause();
+          e.preventDefault();
+        } else if (e.key === 'f') {
+          document.fullscreenElement ? document.exitFullscreen() : video.requestFullscreen();
+        } else if (e.code === 'MediaTrackNext') {
+          nextEpisode();
+        }
+      });
+
+      video.addEventListener('ended', () => {
+        nextEpisode();
+      });
+
+      function nextEpisode() {
+        list.shift();
+        if (list.length > 0) {
+          const newL = toBase64(list.join('\n'));
+          const url = `${location.pathname}?${t ? `t=${t}&` : ''}l=${newL}`;
+          location.href = url;
+        }
+      }
+    }
+  </script>
+</body>
+</html>
