@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Loading...</title>
   <style>
     body {
@@ -53,6 +53,15 @@
       background: black;
       display: none;
     }
+    #interactionLayer {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0);
+      z-index: 9999;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -63,6 +72,7 @@
   </div>
 
   <video id="player" controls></video>
+  <div id="interactionLayer"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
@@ -75,6 +85,15 @@
 
     const video = document.getElementById('player');
     const form = document.getElementById('form');
+    const interactionLayer = document.getElementById('interactionLayer');
+
+    function isIOS() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    }
+
+    function isSafari() {
+      return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    }
 
     if (!l) {
       const titleInput = document.getElementById('titleInput');
@@ -105,6 +124,7 @@
     } else {
       form.style.display = 'none';
       video.style.display = 'block';
+      interactionLayer.style.display = 'block';
 
       let list = fromBase64(l).split(/\r?\n/).filter(line => line.trim());
       const current = list[0];
@@ -118,8 +138,12 @@
 
       let interacted = false;
 
-      // 强制静音播放尝试，若失败则等待用户交互
-      video.muted = true;
+      // 自动播放策略判断
+      if (isIOS() && isSafari()) {
+        video.muted = true;
+      } else {
+        video.muted = false;
+      }
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => {});
@@ -130,21 +154,21 @@
         interacted = true;
         video.muted = false;
         video.play().catch(() => {});
+        interactionLayer.style.display = 'none';
         if (!document.fullscreenElement && video.requestFullscreen) {
-          video.requestFullscreen();
+          video.requestFullscreen().catch(() => {});
         }
       }
 
-      // 初次用户操作：取消静音 + 全屏（不管是否正在播放）
-      const firstTriggers = ['Space', 'MediaPlayPause'];
+      // 用户首次交互触发器
       document.addEventListener('keydown', e => {
-        if (!interacted && firstTriggers.includes(e.code)) {
+        if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause')) {
           activatePlayback();
           e.preventDefault();
           return;
         }
 
-        // 正常控制：播放/暂停、全屏、下一集
+        // 后续正常控制
         if (e.code === 'Space' || e.code === 'MediaPlayPause') {
           video.paused ? video.play() : video.pause();
           e.preventDefault();
@@ -155,7 +179,14 @@
         }
       });
 
-      document.addEventListener('click', activatePlayback);
+      interactionLayer.addEventListener('click', activatePlayback);
+      video.addEventListener('click', () => {
+        if (!interacted) {
+          activatePlayback();
+        } else {
+          video.paused ? video.play() : video.pause();
+        }
+      });
 
       video.addEventListener('ended', () => {
         nextEpisode();
