@@ -138,7 +138,6 @@
 
       let interacted = false;
 
-      // 自动播放策略判断
       if (isIOS() && isSafari()) {
         video.muted = true;
       } else {
@@ -149,29 +148,32 @@
         video.play().catch(() => {});
       });
 
-      function activatePlayback() {
+      function activatePlayback(e) {
         if (interacted) return;
+
         interacted = true;
+        if (e) e.preventDefault();
+
         video.muted = false;
         video.play().catch(() => {});
         interactionLayer.style.display = 'none';
+
         if (!document.fullscreenElement && video.requestFullscreen) {
           video.requestFullscreen().catch(() => {});
         }
       }
 
-      // 用户首次交互触发器
+      // 用户首次交互
       document.addEventListener('keydown', e => {
         if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause')) {
-          activatePlayback();
-          e.preventDefault();
+          activatePlayback(e);
           return;
         }
 
-        // 后续正常控制
+        // 后续控制
         if (e.code === 'Space' || e.code === 'MediaPlayPause') {
-          video.paused ? video.play() : video.pause();
           e.preventDefault();
+          video.paused ? video.play() : video.pause();
         } else if (e.key === 'f') {
           document.fullscreenElement ? document.exitFullscreen() : video.requestFullscreen();
         } else if (e.code === 'MediaTrackNext') {
@@ -179,10 +181,13 @@
         }
       });
 
-      interactionLayer.addEventListener('click', activatePlayback);
-      video.addEventListener('click', () => {
+      interactionLayer.addEventListener('click', e => {
+        activatePlayback(e);
+      });
+
+      video.addEventListener('click', e => {
         if (!interacted) {
-          activatePlayback();
+          activatePlayback(e);
         } else {
           video.paused ? video.play() : video.pause();
         }
