@@ -62,7 +62,7 @@
     <button id="openBtn" disabled>打开</button>
   </div>
 
-  <video id="player" controls></video>
+  <video id="player" controls muted></video>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
@@ -115,13 +115,40 @@
       const hls = new Hls();
       hls.loadSource(url);
       hls.attachMedia(video);
+
+      let userInteracted = false;
+
+      // Try to autoplay on load
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().then(() => {
+          video.muted = false;
           if (video.requestFullscreen) video.requestFullscreen();
-        }).catch(() => {});
+        }).catch(() => {
+          // Autoplay failed - wait for user interaction
+        });
       });
 
+      function handleFirstUserAction() {
+        if (userInteracted) return;
+        userInteracted = true;
+
+        video.muted = false;
+        video.play().catch(() => {});
+        if (!document.fullscreenElement && video.requestFullscreen) {
+          video.requestFullscreen();
+        }
+      }
+
+      // First interaction triggers play/fullscreen/unmute
+      const triggerKeys = ['Space', 'MediaPlayPause'];
       document.addEventListener('keydown', e => {
+        if (!userInteracted && triggerKeys.includes(e.code)) {
+          handleFirstUserAction();
+          e.preventDefault();
+          return;
+        }
+
+        // Normal playback control after user interacted
         if (e.code === 'Space' || e.code === 'MediaPlayPause') {
           video.paused ? video.play() : video.pause();
           e.preventDefault();
@@ -131,6 +158,8 @@
           nextEpisode();
         }
       });
+
+      document.addEventListener('click', handleFirstUserAction);
 
       video.addEventListener('ended', () => {
         nextEpisode();
