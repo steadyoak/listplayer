@@ -10,28 +10,59 @@
       font-family: sans-serif;
       margin: 0;
       padding: 2em;
+      overflow: hidden;
     }
-    input, textarea, button {
-      display: block;
+    #form {
+      max-width: 90vw;
+      margin: 0 auto;
+    }
+    input, textarea {
+      font-family: sans-serif;
+      font-size: 1em;
       width: 100%;
       margin-bottom: 1em;
-      font-size: 1.2em;
+      box-sizing: border-box;
+      padding: 0.5em;
+      background-color: #151515 !important;
+      color: #fff !important;
+      border: 1px solid #333;
+      outline: none;
+    }
+    input:-webkit-autofill,
+    input:-webkit-autofill:focus {
+      background-color: #151515 !important;
+      color: #fff !important;
+      -webkit-box-shadow: 0 0 0px 1000px #151515 inset !important;
+      -webkit-text-fill-color: #fff !important;
+    }
+    textarea {
+      resize: none;
+      overflow: hidden;
+      min-height: 15em;
+    }
+    button {
+      padding: 0.5em 1em;
+      font-size: 1em;
+      cursor: pointer;
     }
     video {
+      position: fixed;
+      top: 0; left: 0;
       width: 100vw;
       height: 100vh;
       background: black;
+      display: none;
     }
   </style>
 </head>
 <body>
   <div id="form">
-    <input id="titleInput" type="text" placeholder="标题（可空）">
-    <textarea id="listInput" placeholder="输入分集名称$地址...一行一个"></textarea>
+    <input id="titleInput" type="text" placeholder="内容标题">
+    <textarea id="listInput" placeholder="地址列表"></textarea>
     <button id="openBtn" disabled>打开</button>
   </div>
 
-  <video id="player" controls style="display:none;"></video>
+  <video id="player" controls></video>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
@@ -42,15 +73,27 @@
     const t = getParam('t');
     const l = getParam('l');
 
+    const video = document.getElementById('player');
+    const form = document.getElementById('form');
+
     if (!l) {
-      // 初始化表单逻辑
       const titleInput = document.getElementById('titleInput');
       const listInput = document.getElementById('listInput');
       const openBtn = document.getElementById('openBtn');
 
       listInput.addEventListener('input', () => {
         openBtn.disabled = listInput.value.trim() === '';
+        autoResize(listInput);
       });
+
+      function autoResize(textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, window.innerHeight * 0.8) + 'px';
+      }
+
+      listInput.addEventListener('input', () => autoResize(listInput));
+      window.addEventListener('resize', () => autoResize(listInput));
+      autoResize(listInput);
 
       openBtn.addEventListener('click', () => {
         const titleEncoded = toBase64(titleInput.value.trim());
@@ -58,10 +101,8 @@
         const url = `${location.pathname}?t=${titleEncoded}&l=${listEncoded}`;
         location.href = url;
       });
+
     } else {
-      // 播放逻辑
-      const video = document.getElementById('player');
-      const form = document.getElementById('form');
       form.style.display = 'none';
       video.style.display = 'block';
 
@@ -75,10 +116,11 @@
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().then(() => video.requestFullscreen()).catch(() => {});
+        video.play().then(() => {
+          if (video.requestFullscreen) video.requestFullscreen();
+        }).catch(() => {});
       });
 
-      // 控制键
       document.addEventListener('keydown', e => {
         if (e.code === 'Space' || e.code === 'MediaPlayPause') {
           video.paused ? video.play() : video.pause();
