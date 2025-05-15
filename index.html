@@ -136,7 +136,9 @@
       hls.loadSource(url);
       hls.attachMedia(video);
 
-      // 静音策略判断
+      let interacted = false;
+
+      // 静音策略判断：iOS Safari 要静音
       if (isIOS() && isSafari()) {
         video.muted = true;
       } else {
@@ -147,62 +149,34 @@
         video.play().catch(() => {});
       });
 
-      // 初次交互标记
-      let interacted = false;
-
-      // 事件处理器定义为具名函数，以便之后移除
-      function handleFirstKeydown(e) {
-        if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause')) {
-          activatePlayback();
-          e.preventDefault();
-        }
-      }
-
-      function handleFirstClick() {
-        if (!interacted) {
-          activatePlayback();
-        }
-      }
-
-      function activatePlayback() {
+      function activatePlaybackOnce() {
+        if (interacted) return;
         interacted = true;
-
-        // 清除监听器
-        document.removeEventListener('keydown', handleFirstKeydown);
-        interactionLayer.removeEventListener('click', handleFirstClick);
-        video.removeEventListener('click', handleFirstClick);
-
-        interactionLayer.style.display = 'none';
-
         video.muted = false;
         video.play().catch(() => {});
+        interactionLayer.style.display = 'none';
         if (!document.fullscreenElement && video.requestFullscreen) {
           video.requestFullscreen().catch(() => {});
         }
+
+        // 清除事件监听，后续交由 video 自己处理
+        interactionLayer.removeEventListener('click', activatePlaybackOnce);
+        document.removeEventListener('keydown', keyHandler);
+        video.removeEventListener('click', activatePlaybackOnce);
       }
 
-      // 绑定首次交互监听器
-      document.addEventListener('keydown', handleFirstKeydown);
-      interactionLayer.addEventListener('click', handleFirstClick);
-      video.addEventListener('click', handleFirstClick);
-
-      // 后续播放/暂停控制
-      document.addEventListener('keydown', e => {
-        if (e.code === 'Space' || e.code === 'MediaPlayPause') {
-          video.paused ? video.play() : video.pause();
+      function keyHandler(e) {
+        if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause')) {
+          activatePlaybackOnce();
           e.preventDefault();
-        } else if (e.key === 'f') {
-          document.fullscreenElement ? document.exitFullscreen() : video.requestFullscreen();
         } else if (e.code === 'MediaTrackNext') {
           nextEpisode();
         }
-      });
+      }
 
-      video.addEventListener('click', () => {
-        if (interacted) {
-          video.paused ? video.play() : video.pause();
-        }
-      });
+      interactionLayer.addEventListener('click', activatePlaybackOnce);
+      document.addEventListener('keydown', keyHandler);
+      video.addEventListener('click', activatePlaybackOnce);
 
       video.addEventListener('ended', () => {
         nextEpisode();
