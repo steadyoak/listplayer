@@ -79,113 +79,135 @@
     const getParam = name => new URLSearchParams(location.search).get(name);
     const toBase64 = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const fromBase64 = str => decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
-  
+
     const t = getParam('t');
     const l = getParam('l');
-  
+
     const video = document.getElementById('player');
     const form = document.getElementById('form');
     const interactionLayer = document.getElementById('interactionLayer');
-  
+
     function isIOS() {
       return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     }
-  
+
     function isSafari() {
       return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     }
-  
+
     if (!l) {
-      // 表单页逻辑
-      // ...
+      const titleInput = document.getElementById('titleInput');
+      const listInput = document.getElementById('listInput');
+      const openBtn = document.getElementById('openBtn');
+
+      listInput.addEventListener('input', () => {
+        openBtn.disabled = listInput.value.trim() === '';
+        autoResize(listInput);
+      });
+
+      function autoResize(textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, window.innerHeight * 0.8) + 'px';
+      }
+
+      listInput.addEventListener('input', () => autoResize(listInput));
+      window.addEventListener('resize', () => autoResize(listInput));
+      autoResize(listInput);
+
+      openBtn.addEventListener('click', () => {
+        const titleEncoded = toBase64(titleInput.value.trim());
+        const listEncoded = toBase64(listInput.value.trim());
+        const url = `${location.pathname}?t=${titleEncoded}&l=${listEncoded}`;
+        location.href = url;
+      });
+
     } else {
       form.style.display = 'none';
       video.style.display = 'block';
       interactionLayer.style.display = 'block';
-  
+
       let list = fromBase64(l).split(/\r?\n/).filter(line => line.trim());
       const current = list[0];
       const [epName, url] = current.split('$');
       const title = t ? fromBase64(t) : '';
       document.title = (title ? title + ' - ' : '') + epName;
-  
+
       const hls = new Hls();
       hls.loadSource(url);
       hls.attachMedia(video);
-  
-      let interacted = false;
-  
+
+      // 静音策略判断
       if (isIOS() && isSafari()) {
         video.muted = true;
       } else {
         video.muted = false;
       }
-  
+
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => {});
       });
-  
-      function activatePlayback(e) {
-        if (interacted) return;
-        interacted = true;
-  
-        if (e) {
+
+      // 初次交互标记
+      let interacted = false;
+
+      // 事件处理器定义为具名函数，以便之后移除
+      function handleFirstKeydown(e) {
+        if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause')) {
+          activatePlayback();
           e.preventDefault();
-          e.stopImmediatePropagation();  // 👈 关键修复点，阻止后续触发
         }
-  
+      }
+
+      function handleFirstClick() {
+        if (!interacted) {
+          activatePlayback();
+        }
+      }
+
+      function activatePlayback() {
+        interacted = true;
+
+        // 清除监听器
+        document.removeEventListener('keydown', handleFirstKeydown);
+        interactionLayer.removeEventListener('click', handleFirstClick);
+        video.removeEventListener('click', handleFirstClick);
+
+        interactionLayer.style.display = 'none';
+
         video.muted = false;
         video.play().catch(() => {});
-        interactionLayer.style.display = 'none';
-  
         if (!document.fullscreenElement && video.requestFullscreen) {
           video.requestFullscreen().catch(() => {});
         }
       }
-  
-      // 首次点击 interactionLayer
-      const handleFirstClick = e => {
-        activatePlayback(e);
-        interactionLayer.removeEventListener('click', handleFirstClick); // 移除，避免重复
-      };
+
+      // 绑定首次交互监听器
+      document.addEventListener('keydown', handleFirstKeydown);
       interactionLayer.addEventListener('click', handleFirstClick);
-  
-      // 首次 keydown
-      const handleFirstKey = e => {
-        if (!interacted && (e.code === 'Space' || e.code === 'MediaPlayPause')) {
-          activatePlayback(e);
-          document.removeEventListener('keydown', handleFirstKey);
-        }
-      };
-      document.addEventListener('keydown', handleFirstKey);
-  
-      // 视频点击（后续切换）
-      video.addEventListener('click', e => {
-        if (!interacted) {
-          activatePlayback(e);
-        } else {
-          video.paused ? video.play() : video.pause();
-        }
-      });
-  
-      // 后续 key 控制
+      video.addEventListener('click', handleFirstClick);
+
+      // 后续播放/暂停控制
       document.addEventListener('keydown', e => {
-        if (!interacted) return; // 防止提前触发
-  
         if (e.code === 'Space' || e.code === 'MediaPlayPause') {
-          e.preventDefault();
           video.paused ? video.play() : video.pause();
+          e.preventDefault();
         } else if (e.key === 'f') {
           document.fullscreenElement ? document.exitFullscreen() : video.requestFullscreen();
         } else if (e.code === 'MediaTrackNext') {
           nextEpisode();
         }
       });
-  
+
+      video.addEventListener('click', () => {
+        if (interacted) {
+          video.paused ? video.play() : video.pause();
+        }
+      });
+
       video.addEventListener('ended', () => {
         nextEpisode();
       });
-  
+
       function nextEpisode() {
         list.shift();
         if (list.length > 0) {
